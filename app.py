@@ -70,7 +70,10 @@ def consultar_metar(icao):
     try:
         resp = requests.get(url, timeout=10)
         dados = resp.json()
-        return [decodificar_metar(m["mens"]) for m in dados.get("data", {}).get("data", [])]
+        mensagens = dados.get("data", {}).get("data", [])
+        if not mensagens:
+            return ["Sem informações METAR disponíveis para este aeródromo. Consulte fontes alternativas."]
+        return [decodificar_metar(m["mens"]) for m in mensagens]
     except:
         return ["Erro ao consultar METAR"]
 
@@ -79,7 +82,10 @@ def consultar_taf(icao):
     try:
         resp = requests.get(url, timeout=10)
         dados = resp.json()
-        return [decodificar_taf(m["mens"]) for m in dados.get("data", {}).get("data", [])]
+        mensagens = dados.get("data", {}).get("data", [])
+        if not mensagens:
+            return ["Sem informações TAF disponíveis para este aeródromo. Consulte fontes alternativas."]
+        return [decodificar_taf(m["mens"]) for m in mensagens]
     except:
         return ["Erro ao consultar TAF"]
 
@@ -93,7 +99,7 @@ def decodificar_metar(metar):
         resumo.append(f"Vento: {direcao} a {match[2]} kt")
     if match := re.search(r"(\d{2})/(\d{2})", partes):
         resumo.append(f"Temperatura: {match[1]} °C / Ponto de orvalho: {match[2]} °C")
-    return "\n".join(resumo)
+    return "\n".join(resumo) or "METAR não decodificado"
 
 def decodificar_taf(taf):
     partes = taf.replace("\n", " ").replace("=", "").strip()
@@ -202,27 +208,31 @@ if origem and destino:
 
     # METAR / TAF Origem
     st.markdown("### 🌤️ Condições - Origem")
-    exibir_bloco_titulo("📄 METAR decodificado:")
+    exibir_bloco_titulo("📄 METAR:")
     for m in origem_data["metar"]: exibir_bloco_conteudo(m)
-    exibir_bloco_titulo("📡 TAF decodificado:")
+    exibir_bloco_titulo("📡 TAF:")
     for t in origem_data["taf"]: exibir_bloco_conteudo(t)
 
     # METAR / TAF Destino
     st.markdown("### 🌥️ Condições - Destino")
-    exibir_bloco_titulo("📄 METAR decodificado:")
+    exibir_bloco_titulo("📄 METAR:")
     for m in destino_data["metar"]: exibir_bloco_conteudo(m)
-    exibir_bloco_titulo("📡 TAF decodificado:")
+    exibir_bloco_titulo("📡 TAF:")
     for t in destino_data["taf"]: exibir_bloco_conteudo(t)
 
     # NOTAMs
+    st.markdown("#### NOTAMs Origem")
     if origem_data["notam"]:
-        st.markdown("#### NOTAMs Origem")
         for n in origem_data["notam"]:
             st.markdown(f"- {n['Codigo']} ({n['DataHora']}) — {n['Informacao']}")
+    else:
+        st.info("Nenhum NOTAM disponível para o aeródromo de origem.")
 
+    st.markdown("#### NOTAMs Destino")
     if destino_data["notam"]:
-        st.markdown("#### NOTAMs Destino")
         for n in destino_data["notam"]:
             st.markdown(f"- {n['Codigo']} ({n['DataHora']}) — {n['Informacao']}")
+    else:
+        st.info("Nenhum NOTAM disponível para o aeródromo de destino.")
 
     st.caption(f"Consulta gerada em {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
