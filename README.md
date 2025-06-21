@@ -72,12 +72,6 @@ streamlit run app.py
 
 ---
 
-## 🧠 Créditos
-
-Projeto desenvolvido por Ingrid Portilho da Silva como parte dos estudos em Inteligência Artificial aplicada à aviação, no contexto da disciplina IT-200 - Infraestrutura Aeronáutica, durante o mestrado no Instituto Tecnológico de Aeronáutica (ITA).
-
----
-
 ## 📄 Licença
 
 Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
