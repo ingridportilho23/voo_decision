@@ -2,58 +2,27 @@ import streamlit as st
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import re
 
 # ==============================
 # Configurações de API
 # ==============================
-AISWEB_API_KEY = ""
-AISWEB_API_PASS = ""
-REDEMET_API_KEY = ""
+AISWEB_API_KEY = st.secrets["apis"]["AISWEB_API_KEY"]
+AISWEB_API_PASS = st.secrets["apis"]["AISWEB_API_PASS"]
+REDEMET_API_KEY = st.secrets["apis"]["REDEMET_API_KEY"]
 
 # ==============================
-# Funções auxiliares para consumo das APIs
+# Funções auxiliares
 # ==============================
-def get_notams_por_localidade(icao_code):
-    url = "http://aisweb.decea.gov.br/api/"
-    params = {
-        "apiKey": AISWEB_API_KEY,
-        "apiPass": AISWEB_API_PASS,
-        "area": "notam",
-        "icaocode": icao_code,
-        "minutes": 1440  # últimas 24h
-    }
-
-    try:
-        response = requests.get(url, params=params)
-        if response.status_code != 200:
-            return [f"Erro HTTP {response.status_code}"]
-
-        root = ET.fromstring(response.text)
-        notams = []
-
-        for item in root.findall(".//item"):
-            cod = item.findtext("cod")
-            info = item.findtext("e")
-            dt = item.findtext("dt")
-            loc = item.findtext("loc")
-
-            notams.append(f"📌 Código: {cod} | Local: {loc or icao_code} | Data: {dt}\n🔹 {info or '(sem descrição)'}")
-
-        return notams if notams else ["Nenhum NOTAM encontrado."]
-    except Exception as e:
-        return [f"Erro ao processar NOTAM: {e}"]
-
 def consultar_rotaer(icao):
-    url = (
-        f"https://api.decea.mil.br/aisweb/?apiKey={AISWEB_API_KEY}&apiPass={AISWEB_API_PASS}"
-        f"&area=rotaer&icaoCode={icao}"
-    )
+    url = f"https://api.decea.mil.br/aisweb/?apiKey={AISWEB_API_KEY}&apiPass={AISWEB_API_PASS}&area=rotaer&icaoCode={icao}"
     try:
         resp = requests.get(url, headers={"User-Agent": "Python"}, timeout=10)
         root = ET.fromstring(resp.content)
         pistas = []
         for r in root.findall(".//runway"):
             pistas.append({
+                "ident": r.findtext("ident"),
                 "comprimento_m": r.findtext("length") or "0",
                 "largura_m": r.findtext("width") or "0"
             })
@@ -66,29 +35,107 @@ def consultar_rotaer(icao):
     except Exception as e:
         return {"erro": str(e)}
 
+def get_notams_por_localidade(icao_code):
+    url = "http://aisweb.decea.gov.br/api/"
+    params = {
+        "apiKey": AISWEB_API_KEY,
+        "apiPass": AISWEB_API_PASS,
+        "area": "notam",
+        "icaocode": icao_code,
+        "minutes": 1440
+    }
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code != 200:
+            return []
+        root = ET.fromstring(response.text)
+        notams = []
+        for item in root.findall(".//item"):
+            cod = item.findtext("cod")
+            info = item.findtext("e")
+            loc = item.findtext("loc")
+            dt = item.findtext("dt")
+            notams.append({
+                "Codigo": cod or "N/A",
+                "Localidade": loc or icao_code,
+                "DataHora": dt or "Desconhecida",
+                "Informacao": info or "Sem descrição"
+            })
+        return notams
+    except:
+        return []
+
 def consultar_metar(icao):
     url = f"https://api-redemet.decea.mil.br/mensagens/metar/{icao}?api_key={REDEMET_API_KEY}"
     try:
         resp = requests.get(url, timeout=10)
         dados = resp.json()
-        return [m["mens"] for m in dados.get("data", {}).get("data", [])]
-    except Exception as e:
-        return [f"Erro ao consultar METAR: {e}"]
+        return [decodificar_metar(m["mens"]) for m in dados.get("data", {}).get("data", [])]
+    except:
+        return ["Erro ao consultar METAR"]
 
 def consultar_taf(icao):
     url = f"https://api-redemet.decea.mil.br/mensagens/taf/{icao}?api_key={REDEMET_API_KEY}"
     try:
         resp = requests.get(url, timeout=10)
         dados = resp.json()
-        return [m["mens"] for m in dados.get("data", {}).get("data", [])]
-    except Exception as e:
-        return [f"Erro ao consultar TAF: {e}"]
+        return [decodificar_taf(m["mens"]) for m in dados.get("data", {}).get("data", [])]
+    except:
+        return ["Erro ao consultar TAF"]
+
+def decodificar_metar(metar):
+    partes = metar.replace("\n", " ").replace("=", "").strip()
+    resumo = []
+    if "CAVOK" in partes:
+        resumo.append("Céu limpo (CAVOK)")
+    if match := re.search(r"(\d{3}|VRB)(\d{2})KT", partes):
+        direcao = "variável" if match[1] == "VRB" else match[1]
+        resumo.append(f"Vento: {direcao} a {match[2]} kt")
+    if match := re.search(r"(\d{2})/(\d{2})", partes):
+        resumo.append(f"Temperatura: {match[1]} °C / Ponto de orvalho: {match[2]} °C")
+    return "\n".join(resumo)
+
+def decodificar_taf(taf):
+    partes = taf.replace("\n", " ").replace("=", "").strip()
+    resumo = []
+    if "CAVOK" in partes:
+        resumo.append("Céu limpo durante todo o período")
+    if match := re.search(r"(\d{3}|VRB)(\d{2})KT", partes):
+        direcao = "variável" if match[1] == "VRB" else match[1]
+        resumo.append(f"Vento previsto: {direcao} a {match[2]} kt")
+    if "BECMG" in partes:
+        resumo.append("Haverá mudanças graduais nas condições")
+    return "\n".join(resumo) or "TAF não decodificado"
 
 # ==============================
-# Interface Streamlit
+# Estilos
 # ==============================
-st.set_page_config(page_title="Assistente de Decisão de Voo", layout="centered")
-st.title("🛫 Assistente de Decisão de Voo")
+def exibir_bloco_titulo(texto, cor="#4A90E2"):
+    st.markdown(f"<h5 style='color:{cor}; margin-top: 1em'>{texto}</h5>", unsafe_allow_html=True)
+
+def exibir_bloco_conteudo(texto):
+    st.markdown(
+        f"""
+        <div style="
+            background-color: #f0f0f0;
+            color: #000;
+            padding: 12px 18px;
+            border-radius: 10px;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 1em;
+        ">
+            {texto.replace('\n', '<br>')}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# ==============================
+# Streamlit Interface
+# ==============================
+st.set_page_config(page_title="Assistente de Voo", layout="centered")
+st.title("🛫 Flight Safety Decision")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -97,68 +144,85 @@ with col1:
     vel_cruzeiro = st.number_input("Velocidade de Cruzeiro (knots)", min_value=0)
 with col2:
     destino = st.text_input("Aeródromo de Destino (ex: SBRJ)")
-    dist_decolagem = st.number_input("Distância mínima de decolagem (km)", min_value=0)
-    dist_pouso = st.number_input("Distância mínima de pouso (km)", min_value=0)
+    dist_decolagem = st.number_input("Distância mínima de decolagem (km)", min_value=0.0, step=0.1)
+    dist_pouso = st.number_input("Distância mínima de pouso (km)", min_value=0.0, step=0.1)
 
 if origem and destino:
-    st.subheader("🔍 Análise do Voo")
+    st.markdown("---")
+    st.subheader("🔍 Avaliação das Condições de Voo")
 
-    dados_origem = {
+    origem_data = {
         "rotaer": consultar_rotaer(origem),
-        "notams": get_notams_por_localidade(origem),
+        "notam": get_notams_por_localidade(origem),
         "metar": consultar_metar(origem),
         "taf": consultar_taf(origem)
     }
-
-    dados_destino = {
+    destino_data = {
         "rotaer": consultar_rotaer(destino),
-        "notams": get_notams_por_localidade(destino),
+        "notam": get_notams_por_localidade(destino),
         "metar": consultar_metar(destino),
         "taf": consultar_taf(destino)
     }
 
-    try:
-        comp_ori = int(dados_origem["rotaer"]["pistas"][0]["comprimento_m"])
-        comp_dest = int(dados_destino["rotaer"]["pistas"][0]["comprimento_m"])
+    def avaliar_pistas(local, pistas, distancia_km):
+        relatorio = []
+        for pista in pistas:
+            comprimento = int(pista["comprimento_m"])
+            if comprimento >= distancia_km * 1000:
+                relatorio.append(f"✅ Pista {pista['ident']} ({local}): {comprimento}m OK")
+            else:
+                relatorio.append(f"🚫 Pista {pista['ident']} ({local}): {comprimento}m insuficiente")
+        return relatorio
 
-        if comp_ori < dist_decolagem * 1000:
-            st.error(f"🚫 Pista de decolagem ({origem}) insuficiente: {comp_ori}m < {dist_decolagem * 1000}m")
+    pista_ok = True
+    relatorios = []
+    for trecho, dados, dist_min in [("Origem", origem_data, dist_decolagem), ("Destino", destino_data, dist_pouso)]:
+        rotaer = dados["rotaer"]
+        if not rotaer.get("pistas"):
+            relatorios.append(f"⚠️ Sem dados de pista para {trecho}")
+            pista_ok = False
         else:
-            st.success(f"✅ Pista de decolagem ({origem}) compatível")
+            aval = avaliar_pistas(trecho, rotaer["pistas"], dist_min)
+            relatorios.extend(aval)
+            if any("🚫" in r for r in aval):
+                pista_ok = False
 
-        if comp_dest < dist_pouso * 1000:
-            st.error(f"🚫 Pista de pouso ({destino}) insuficiente: {comp_dest}m < {dist_pouso * 1000}m")
-        else:
-            st.success(f"✅ Pista de pouso ({destino}) compatível")
+    condicoes_ok = all("Erro" not in x[0] for x in [origem_data["metar"], destino_data["metar"], origem_data["taf"], destino_data["taf"]])
 
-    except Exception as e:
-        st.warning(f"Erro ao comparar pistas: {e}")
+    if pista_ok and condicoes_ok:
+        st.success("✅ CONDIÇÃO SEGURA PARA VOO")
+    elif pista_ok:
+        st.warning("⚠️ CONDIÇÃO CONDICIONAL - Verifique previsões e NOTAMs")
+    else:
+        st.error("🚫 CONDIÇÃO INSEGURA PARA VOO")
 
-    # Exibir dados relevantes
-    st.subheader(f"📄 NOTAM - {origem}")
-    for notam in dados_origem["notams"]:
-        st.markdown(f"- {notam}")
+    st.markdown("### Detalhamento")
+    for linha in relatorios:
+        st.markdown(f"- {linha}")
 
-    st.subheader(f"🌤️ METAR - {origem}")
-    for m in dados_origem["metar"]:
-        st.code(m)
+    # METAR / TAF Origem
+    st.markdown("### 🌤️ Condições - Origem")
+    exibir_bloco_titulo("📄 METAR decodificado:")
+    for m in origem_data["metar"]: exibir_bloco_conteudo(m)
+    exibir_bloco_titulo("📡 TAF decodificado:")
+    for t in origem_data["taf"]: exibir_bloco_conteudo(t)
 
-    st.subheader(f"📡 TAF - {origem}")
-    for t in dados_origem["taf"]:
-        st.code(t)
+    # METAR / TAF Destino
+    st.markdown("### 🌥️ Condições - Destino")
+    exibir_bloco_titulo("📄 METAR decodificado:")
+    for m in destino_data["metar"]: exibir_bloco_conteudo(m)
+    exibir_bloco_titulo("📡 TAF decodificado:")
+    for t in destino_data["taf"]: exibir_bloco_conteudo(t)
 
-    st.markdown(f"---")
+    # NOTAMs
+    if origem_data["notam"]:
+        st.markdown("#### NOTAMs Origem")
+        for n in origem_data["notam"]:
+            st.markdown(f"- {n['Codigo']} ({n['DataHora']}) — {n['Informacao']}")
 
-    st.subheader(f"📄 NOTAM - {destino}")
-    for notam in dados_destino["notams"]:
-        st.markdown(f"- {notam}")
+    if destino_data["notam"]:
+        st.markdown("#### NOTAMs Destino")
+        for n in destino_data["notam"]:
+            st.markdown(f"- {n['Codigo']} ({n['DataHora']}) — {n['Informacao']}")
 
-    st.subheader(f"🌤️ METAR - {destino}")
-    for m in dados_destino["metar"]:
-        st.code(m)
-
-    st.subheader(f"📡 TAF - {destino}")
-    for t in dados_destino["taf"]:
-        st.code(t)
-
-    st.caption(f"Consulta em {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.caption(f"Consulta gerada em {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
