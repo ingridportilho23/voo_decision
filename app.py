@@ -42,7 +42,7 @@ def get_notams_por_localidade(icao_code):
         "apiPass": AISWEB_API_PASS,
         "area": "notam",
         "icaocode": icao_code,
-        "minutes": 1440
+        "minutes": 4320
     }
     try:
         response = requests.get(url, params=params)
@@ -170,25 +170,32 @@ if origem and destino:
         "taf": consultar_taf(destino)
     }
 
-    def avaliar_pistas(local, pistas, distancia_km):
+    def avaliar_pistas(local, pistas, dist_min_decolagem, dist_min_pouso):
         relatorio = []
         for pista in pistas:
             comprimento = int(pista["comprimento_m"])
-            if comprimento >= distancia_km * 1000:
-                relatorio.append(f"✅ Pista {pista['ident']} ({local}): {comprimento}m OK")
+            if comprimento >= dist_min_decolagem * 1000:
+                relatorio.append(f"✅ Pista {pista['ident']} ({local}) - Decolagem: {comprimento}m OK")
             else:
-                relatorio.append(f"🚫 Pista {pista['ident']} ({local}): {comprimento}m insuficiente")
+                relatorio.append(f"🚫 Pista {pista['ident']} ({local}) - Decolagem: {comprimento}m insuficiente")
+
+            if comprimento >= dist_min_pouso * 1000:
+                relatorio.append(f"✅ Pista {pista['ident']} ({local}) - Pouso: {comprimento}m OK")
+            else:
+                relatorio.append(f"🚫 Pista {pista['ident']} ({local}) - Pouso: {comprimento}m insuficiente")
         return relatorio
 
     pista_ok = True
     relatorios = []
-    for trecho, dados, dist_min in [("Origem", origem_data, dist_decolagem), ("Destino", destino_data, dist_pouso)]:
+    for local, dados in [("Origem", origem_data), ("Destino", destino_data)]:
         rotaer = dados["rotaer"]
         if not rotaer.get("pistas"):
-            relatorios.append(f"⚠️ Sem dados de pista para {trecho}")
+            relatorios.append(f"⚠️ Sem dados de pista para {local}")
             pista_ok = False
         else:
-            aval = avaliar_pistas(trecho, rotaer["pistas"], dist_min)
+            dist_min_dec = dist_decolagem if local == "Origem" else dist_decolagem
+            dist_min_pos = dist_pouso if local == "Destino" else dist_pouso
+            aval = avaliar_pistas(local, rotaer["pistas"], dist_min_dec, dist_min_pos)
             relatorios.extend(aval)
             if any("🚫" in r for r in aval):
                 pista_ok = False
@@ -206,21 +213,18 @@ if origem and destino:
     for linha in relatorios:
         st.markdown(f"- {linha}")
 
-    # METAR / TAF Origem
     st.markdown("### 🌤️ Condições - Origem")
     exibir_bloco_titulo("📄 METAR:")
     for m in origem_data["metar"]: exibir_bloco_conteudo(m)
     exibir_bloco_titulo("📡 TAF:")
     for t in origem_data["taf"]: exibir_bloco_conteudo(t)
 
-    # METAR / TAF Destino
     st.markdown("### 🌥️ Condições - Destino")
     exibir_bloco_titulo("📄 METAR:")
     for m in destino_data["metar"]: exibir_bloco_conteudo(m)
     exibir_bloco_titulo("📡 TAF:")
     for t in destino_data["taf"]: exibir_bloco_conteudo(t)
 
-    # NOTAMs
     st.markdown("#### NOTAMs Origem")
     if origem_data["notam"]:
         for n in origem_data["notam"]:
