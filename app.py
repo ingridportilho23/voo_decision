@@ -239,4 +239,4 @@ if origem and destino:
     else:
         st.info("Nenhum NOTAM disponível para o aeródromo de destino.")
 
-    st.caption(f"Consulta gerada em {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.caption(f"Consulta gerada em {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
