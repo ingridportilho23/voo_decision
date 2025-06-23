@@ -128,6 +128,31 @@ def ha_alerta_notam(lista_notam):
     return any("FECHADO" in n["Informacao"].upper() or "CANCELADO" in n["Informacao"].upper() for n in lista_notam)
 
 # ==============================
+# Estilo visual
+# ==============================
+def exibir_bloco_titulo(texto, cor="#4A90E2"):
+    st.markdown(f"<h5 style='color:{cor}; margin-top: 1em'>{texto}</h5>", unsafe_allow_html=True)
+
+def exibir_bloco_conteudo(texto):
+    st.markdown(
+        f"""
+        <div style="
+            background-color: #f7f7f7;
+            color: #111;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 1em;
+            border: 1px solid #ddd;
+        ">
+            {texto.replace('\n', '<br>')}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# ==============================
 # Interface Streamlit
 # ==============================
 st.set_page_config(page_title="Assistente de Voo", layout="centered")
@@ -206,29 +231,43 @@ if origem and destino:
     else:
         st.error("🚫 CONDIÇÃO INSEGURA PARA VOO")
 
-    st.markdown("### Detalhamento")
+    # Detalhamento visual
+    st.markdown("### 📋 Relatório de Pistas")
     for linha in relatorios:
         st.markdown(f"- {linha}")
 
+    # Origem
     st.markdown("### 🌤️ Condições - Origem")
-    for m in origem_data["metar"]: st.markdown(f"- {m}")
-    for t in origem_data["taf"]: st.markdown(f"- {t}")
+    exibir_bloco_titulo("📄 METAR:")
+    for m in origem_data["metar"]:
+        exibir_bloco_conteudo(m)
 
+    exibir_bloco_titulo("📡 TAF:")
+    for t in origem_data["taf"]:
+        exibir_bloco_conteudo(t)
+
+    # Destino
     st.markdown("### 🌥️ Condições - Destino")
-    for m in destino_data["metar"]: st.markdown(f"- {m}")
-    for t in destino_data["taf"]: st.markdown(f"- {t}")
+    exibir_bloco_titulo("📄 METAR:")
+    for m in destino_data["metar"]:
+        exibir_bloco_conteudo(m)
 
-    st.markdown("#### NOTAMs Origem")
+    exibir_bloco_titulo("📡 TAF:")
+    for t in destino_data["taf"]:
+        exibir_bloco_conteudo(t)
+
+    # NOTAMs
+    st.markdown("### 📢 NOTAMs Origem")
     if origem_data["notam"]:
         for n in origem_data["notam"]:
-            st.markdown(f"- {n['Codigo']} ({n['DataHora']}) — {n['Informacao']}")
+            exibir_bloco_conteudo(f"📌 **{n['Codigo']}** ({n['DataHora']}): {n['Informacao']}")
     else:
         st.info("Nenhum NOTAM disponível para o aeródromo de origem.")
 
-    st.markdown("#### NOTAMs Destino")
+    st.markdown("### 📢 NOTAMs Destino")
     if destino_data["notam"]:
         for n in destino_data["notam"]:
-            st.markdown(f"- {n['Codigo']} ({n['DataHora']}) — {n['Informacao']}")
+            exibir_bloco_conteudo(f"📌 **{n['Codigo']}** ({n['DataHora']}): {n['Informacao']}")
     else:
         st.info("Nenhum NOTAM disponível para o aeródromo de destino.")
 
