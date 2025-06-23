@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 import xml.etree.ElementTree as ET
@@ -72,7 +73,7 @@ def consultar_metar(icao):
         dados = resp.json()
         mensagens = dados.get("data", {}).get("data", [])
         if not mensagens:
-            return ["Sem informações METAR disponíveis para este aeródromo. Consulte fontes alternativas."]
+            return ["Sem informações METAR disponíveis para este aeródromo."]
         return [decodificar_metar(m["mens"]) for m in mensagens]
     except:
         return ["Erro ao consultar METAR"]
@@ -84,7 +85,7 @@ def consultar_taf(icao):
         dados = resp.json()
         mensagens = dados.get("data", {}).get("data", [])
         if not mensagens:
-            return ["Sem informações TAF disponíveis para este aeródromo. Consulte fontes alternativas."]
+            return ["Sem informações TAF disponíveis para este aeródromo."]
         return [decodificar_taf(m["mens"]) for m in mensagens]
     except:
         return ["Erro ao consultar TAF"]
@@ -99,6 +100,8 @@ def decodificar_metar(metar):
         resumo.append(f"Vento: {direcao} a {match[2]} kt")
     if match := re.search(r"(M?\d{2})/(M?\d{2})", partes):
         resumo.append(f"Temperatura: {match[1]} °C / Ponto de orvalho: {match[2]} °C")
+    if "TSRA" in partes or "FG" in partes or "SN" in partes:
+        resumo.append("Alerta - Fenômeno significativo detectado")
     return "\n".join(resumo) or "METAR não decodificado"
 
 def decodificar_taf(taf):
@@ -110,35 +113,22 @@ def decodificar_taf(taf):
         direcao = "variável" if match[1] == "VRB" else match[1]
         resumo.append(f"Vento previsto: {direcao} a {match[2]} kt")
     if "BECMG" in partes:
-        resumo.append("Haverá mudanças graduais nas condições")
+        resumo.append("\nHaverá mudanças graduais nas condições")
+    if any(term in partes for term in ["TSRA", "FG", "SN", "RA"]):
+        resumo.append("Alerta - Previsão de fenômenos meteorológicos adversos")
     return "\n".join(resumo) or "TAF não decodificado"
 
-# ==============================
-# Estilos
-# ==============================
-def exibir_bloco_titulo(texto, cor="#4A90E2"):
-    st.markdown(f"<h5 style='color:{cor}; margin-top: 1em'>{texto}</h5>", unsafe_allow_html=True)
+def ha_alertas(textos):
+    for t in textos:
+        if "Alerta" in t:
+            return True
+    return False
 
-def exibir_bloco_conteudo(texto):
-    st.markdown(
-        f"""
-        <div style="
-            background-color: #f0f0f0;
-            color: #000;
-            padding: 12px 18px;
-            border-radius: 10px;
-            font-size: 15px;
-            line-height: 1.6;
-            margin-bottom: 1em;
-        ">
-            {texto.replace('\n', '<br>')}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+def ha_alerta_notam(lista_notam):
+    return any("FECHADO" in n["Informacao"].upper() or "CANCELADO" in n["Informacao"].upper() for n in lista_notam)
 
 # ==============================
-# Streamlit Interface
+# Interface Streamlit
 # ==============================
 st.set_page_config(page_title="Assistente de Voo", layout="centered")
 st.title("🛫 Flight Safety Decision")
@@ -172,37 +162,44 @@ if origem and destino:
 
     def avaliar_pistas(local, pistas, dist_min_decolagem, dist_min_pouso):
         relatorio = []
+        pista_ok = True
         for pista in pistas:
             comprimento = int(pista["comprimento_m"])
             if comprimento >= dist_min_decolagem * 1000:
                 relatorio.append(f"✅ Pista {pista['ident']} ({local}) - Decolagem: {comprimento}m OK")
             else:
                 relatorio.append(f"🚫 Pista {pista['ident']} ({local}) - Decolagem: {comprimento}m insuficiente")
+                pista_ok = False
 
             if comprimento >= dist_min_pouso * 1000:
                 relatorio.append(f"✅ Pista {pista['ident']} ({local}) - Pouso: {comprimento}m OK")
             else:
                 relatorio.append(f"🚫 Pista {pista['ident']} ({local}) - Pouso: {comprimento}m insuficiente")
-        return relatorio
+                pista_ok = False
+        return relatorio, pista_ok
 
-    pista_ok = True
-    relatorios = []
+    relatorios, pista_ok = [], True
     for local, dados in [("Origem", origem_data), ("Destino", destino_data)]:
         rotaer = dados["rotaer"]
         if not rotaer.get("pistas"):
             relatorios.append(f"⚠️ Sem dados de pista para {local}")
             pista_ok = False
         else:
-            dist_min_dec = dist_decolagem if local == "Origem" else dist_decolagem
-            dist_min_pos = dist_pouso if local == "Destino" else dist_pouso
-            aval = avaliar_pistas(local, rotaer["pistas"], dist_min_dec, dist_min_pos)
-            relatorios.extend(aval)
-            if any("🚫" in r for r in aval):
+            rel, ok = avaliar_pistas(local, rotaer["pistas"], dist_decolagem, dist_pouso)
+            relatorios.extend(rel)
+            if not ok:
                 pista_ok = False
 
-    condicoes_ok = all("Erro" not in x[0] for x in [origem_data["metar"], destino_data["metar"], origem_data["taf"], destino_data["taf"]])
+    alertas = (
+        ha_alertas(origem_data["metar"]) or
+        ha_alertas(destino_data["metar"]) or
+        ha_alertas(origem_data["taf"]) or
+        ha_alertas(destino_data["taf"]) or
+        ha_alerta_notam(origem_data["notam"]) or
+        ha_alerta_notam(destino_data["notam"])
+    )
 
-    if pista_ok and condicoes_ok:
+    if pista_ok and not alertas:
         st.success("✅ CONDIÇÃO SEGURA PARA VOO")
     elif pista_ok:
         st.warning("⚠️ CONDIÇÃO CONDICIONAL - Verifique previsões e NOTAMs")
@@ -214,16 +211,12 @@ if origem and destino:
         st.markdown(f"- {linha}")
 
     st.markdown("### 🌤️ Condições - Origem")
-    exibir_bloco_titulo("📄 METAR:")
-    for m in origem_data["metar"]: exibir_bloco_conteudo(m)
-    exibir_bloco_titulo("📡 TAF:")
-    for t in origem_data["taf"]: exibir_bloco_conteudo(t)
+    for m in origem_data["metar"]: st.markdown(f"- {m}")
+    for t in origem_data["taf"]: st.markdown(f"- {t}")
 
     st.markdown("### 🌥️ Condições - Destino")
-    exibir_bloco_titulo("📄 METAR:")
-    for m in destino_data["metar"]: exibir_bloco_conteudo(m)
-    exibir_bloco_titulo("📡 TAF:")
-    for t in destino_data["taf"]: exibir_bloco_conteudo(t)
+    for m in destino_data["metar"]: st.markdown(f"- {m}")
+    for t in destino_data["taf"]: st.markdown(f"- {t}")
 
     st.markdown("#### NOTAMs Origem")
     if origem_data["notam"]:
@@ -239,4 +232,4 @@ if origem and destino:
     else:
         st.info("Nenhum NOTAM disponível para o aeródromo de destino.")
 
-    st.caption(f"Consulta gerada em {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.caption(f"Consulta gerada em {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
