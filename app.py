@@ -97,7 +97,7 @@ def decodificar_metar(metar):
     if match := re.search(r"(\d{3}|VRB)(\d{2})KT", partes):
         direcao = "variável" if match[1] == "VRB" else match[1]
         resumo.append(f"Vento: {direcao} a {match[2]} kt")
-    if match := re.search(r"(\d{2})/(\d{2})", partes):
+    if match := re.search(r"(M?\d{2})/(M?\d{2})", partes):
         resumo.append(f"Temperatura: {match[1]} °C / Ponto de orvalho: {match[2]} °C")
     return "\n".join(resumo) or "METAR não decodificado"
 
