@@ -157,6 +157,7 @@ def exibir_bloco_conteudo(texto):
 # ==============================
 st.set_page_config(page_title="Assistente de Voo", layout="centered")
 st.title("🛫 Flight Safety Decision")
+st.markdown("<p style='font-size:14px; color:#E69F00;'>⚠️ Versão em Estudos!</p>", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 with col1:
@@ -165,8 +166,9 @@ with col1:
     vel_cruzeiro = st.number_input("Velocidade de Cruzeiro (knots)", min_value=0)
 with col2:
     destino = st.text_input("Aeródromo de Destino (ex: SBRJ)")
-    dist_decolagem = st.number_input("Distância mínima de decolagem (km)", min_value=0.0, step=0.1)
-    dist_pouso = st.number_input("Distância mínima de pouso (km)", min_value=0.0, step=0.1)
+    dist_decolagem = st.number_input("Distância mínima de decolagem (m)", min_value=0, step=10)
+    dist_pouso = st.number_input("Distância mínima de pouso (m)", min_value=0, step=10)
+
 
 if origem and destino:
     st.markdown("---")
@@ -190,13 +192,13 @@ if origem and destino:
         pista_ok = True
         for pista in pistas:
             comprimento = int(pista["comprimento_m"])
-            if comprimento >= dist_min_decolagem * 1000:
+            if comprimento >= dist_min_decolagem:
                 relatorio.append(f"✅ Pista {pista['ident']} ({local}) - Decolagem: {comprimento}m OK")
             else:
                 relatorio.append(f"🚫 Pista {pista['ident']} ({local}) - Decolagem: {comprimento}m insuficiente")
                 pista_ok = False
 
-            if comprimento >= dist_min_pouso * 1000:
+            if comprimento >= dist_min_pouso:
                 relatorio.append(f"✅ Pista {pista['ident']} ({local}) - Pouso: {comprimento}m OK")
             else:
                 relatorio.append(f"🚫 Pista {pista['ident']} ({local}) - Pouso: {comprimento}m insuficiente")
